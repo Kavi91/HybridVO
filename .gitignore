@@ -1,0 +1,10 @@
+# Ignore all .pth files inside models/
+models/*.pth
+
+# Explicitly ignore specific model files
+models/hybrid_model_best.pth
+models/hybrid_model_final.pth
+
+# Ignore everything inside wandb/ directory
+wandb/
+

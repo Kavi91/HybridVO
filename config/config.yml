@@ -1,0 +1,52 @@
+# Paths
+data_dir: '/home/krkavinda/Datasets/KITTI_ODO/'
+image_dir: '/home/krkavinda/Datasets/KITTI_ODO/data_odometry_color/dataset/sequences/'
+preprocessed_folder: '/home/krkavinda/LoRCoN-LO/data/KITTI/preprocessed_data/'
+pose_dir: '/home/krkavinda/LoRCoN-LO/data/KITTI/pose/'
+relative_pose_folder: '/home/krkavinda/LoRCoN-LO/data/KITTI/relative_pose/'
+calib_dir: '/home/krkavinda/LoRCoN-LO/data/KITTI/calib/'
+#pretrained_flownet: '/home/kavi/HybridVO/FlowNet_models/pytorch/flownets_bn_EPE2.459.pth'
+
+# Dataset
+train_seqs: '00,01,02,05,08,09'
+val_seqs: '06,07'
+test_seqs: '04,10'
+
+# DataLoader
+num_workers: 16
+
+# Model
+batch_size: 32
+seq_len: 5
+rnn_hidden_size: 512
+rnn_dropout_out: 0.5
+rnn_dropout_between: 0
+rnn_num_layers: 2
+
+# Training
+learning_rate: 0.002  # Increased to improve initial convergence
+num_epochs: 300  # Increased to allow more training time
+weight_decay: 1e-4
+early_stopping_patience: 50
+use_mixed_precision: False
+
+# W&B Logging
+use_wandb: True
+wandb_project: 'BEV-LIDAR'
+wandb_run_name: 'hybrid_model_training'
+
+# DeepVO
+img_h: 184
+img_w: 608
+img_means: [0.19, 0.15, 0.10]
+img_stds: [0.26, 0.25, 0.25]
+batch_norm: True
+conv_dropout: [0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2, 0.5]
+
+# LoRCoN-LO
+proj_H: 64
+proj_W: 76
+fov_up: 3.0
+fov_down: -25.0
+max_range: 50
+dataset: KITTI
