@@ -2,7 +2,7 @@
 import torch
 from torch.utils.data import Dataset
 import yaml
-from data.deepvo_data import DeepVOData  # Relative import
+from data.deepvo_data import DeepVOData
 from data.lorcon_data import LoRCoNData
 import numpy as np
 
@@ -20,9 +20,13 @@ class HybridDataset(Dataset):
         return len(self.deepvo)
 
     def __getitem__(self, index):
-        rgb_seq = self.deepvo[index]  # (seq_len, 6, 184, 608)
-        lidar_seq, poses = self.lorcon[index]  # (seq_len, 10, 64, 76), (seq_len, 6)
-        return rgb_seq, lidar_seq, poses
+        rgb_seq, rgb_poses = self.deepvo[index]  # (seq_len, 6, 184, 608), (seq_len, 6)
+        lidar_seq, lidar_poses = self.lorcon[index]  # (seq_len, 10, 64, 76), (seq_len, 6)
+        # Verify pose alignment (debugging)
+        pose_diff = torch.abs(rgb_poses - lidar_poses).sum()
+        if pose_diff > 1e-6:
+            print(f"Warning: Pose mismatch at index {index}: {pose_diff.item()}")
+        return rgb_seq, lidar_seq, lidar_poses  # Use LiDAR poses as ground truth for consistency
 
 # Test
 if __name__ == '__main__':
@@ -37,7 +41,7 @@ if __name__ == '__main__':
         means = np.array(config['img_means'] * 2)[None, None, :]
         stds = np.array(config['img_stds'] * 2)[None, None, :]
         rgb_img = rgb_seq[0].permute(1, 2, 0).numpy()
-        rgb_img = (rgb_img * stds + means).clip(0, 1)
+        rgb_img = ((rgb_img + 0.5) * stds + means).clip(0, 1)  # Reverse normalization
         ax1.imshow(np.concatenate((rgb_img[:, :, :3], rgb_img[:, :, 3:]), axis=1))
         ax1.set_title("First RGB Pair")
         ax2.imshow(lidar_seq[0, 0].numpy(), cmap='gray')

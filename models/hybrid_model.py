@@ -17,21 +17,29 @@ class HybridModel(nn.Module):
         self.rgb_extractor = DeepVOFeatureExtractor()
         self.lidar_extractor = LoRCoNFeatureExtractor()
         
-        self.resize_rgb = nn.Conv2d(1024, 1024, kernel_size=(1, 10), stride=(1, 10), padding=0)
+        # Adjusted resizing for RGB features
+        self.resize_rgb = nn.Conv2d(1024, 1024, kernel_size=(1, 4), stride=(1, 4), padding=0)
         self.upscale_rgb = nn.ConvTranspose2d(1024, 1024, kernel_size=(1, 76), stride=(1, 76), padding=0)
         
-        self.fusion_conv = nn.Conv2d(1024 + 128, 512, kernel_size=3, padding=1)
+        # Attention-based fusion
+        self.attention_rgb = nn.Conv2d(1024, 512, kernel_size=1)  # Reduce RGB channels
+        self.attention_lidar = nn.Conv2d(128, 512, kernel_size=1)  # Increase LiDAR channels
+        self.attention_weights = nn.Conv2d(1024, 1, kernel_size=1)  # Compute attention weights
+        
+        self.fusion_conv = nn.Conv2d(512, 512, kernel_size=3, padding=1)  # Final fusion
         
         self.rnn = nn.LSTM(
             input_size=512 * 4 * 76,
-            hidden_size=config.get('rnn_hidden_size', 1000),
+            hidden_size=config.get('rnn_hidden_size', 1024),  # Increased to match LoRCoN-LO
             num_layers=config.get('rnn_num_layers', 2),
-            dropout=config.get('rnn_dropout_between', 0),
-            batch_first=True
+            dropout=config.get('rnn_dropout_between', 0.3),
+            batch_first=True,
+            bidirectional=True  # Added bidirectionality
         )
-        self.rnn_drop_out = nn.Dropout(config.get('rnn_dropout_out', 0.5))
+        self.rnn_drop_out = nn.Dropout(config.get('rnn_dropout_out', 0.7))
         
-        self.fc = nn.Linear(config.get('rnn_hidden_size', 1000), 6)
+        # Adjust output size for bidirectional RNN (hidden_size * 2)
+        self.fc = nn.Linear(config.get('rnn_hidden_size', 1024) * 2, 6)
         
         # Store the device
         self.device = device if device is not None else torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -53,7 +61,12 @@ class HybridModel(nn.Module):
         if rgb_features.size(2) != lidar_features.size(2):
             rgb_features = F.interpolate(rgb_features, size=(lidar_features.size(2), lidar_features.size(3)), mode='bilinear', align_corners=False)
         
-        fused_features = torch.cat((rgb_features, lidar_features), dim=1)
+        # Attention-based fusion
+        rgb_reduced = self.attention_rgb(rgb_features)
+        lidar_reduced = self.attention_lidar(lidar_features)
+        combined = torch.cat((rgb_reduced, lidar_reduced), dim=1)
+        attention_weights = torch.sigmoid(self.attention_weights(combined))
+        fused_features = (1 - attention_weights) * rgb_reduced + attention_weights * lidar_reduced
         fused_features = self.fusion_conv(fused_features)
         
         self.fused_features = fused_features
@@ -62,15 +75,12 @@ class HybridModel(nn.Module):
         seq_len = rgb.size(1)
         rnn_input = fused_features.view(batch_size, seq_len, -1)
         
-        # Initial hidden and cell states on the model's device
-        h0 = torch.zeros(config.get('rnn_num_layers', 2), batch_size, config.get('rnn_hidden_size', 1000)).to(self.device)
-        c0 = torch.zeros(config.get('rnn_num_layers', 2), batch_size, config.get('rnn_hidden_size', 1000)).to(self.device)
+        h0 = torch.zeros(config.get('rnn_num_layers', 2) * 2, batch_size, config.get('rnn_hidden_size', 1024)).to(self.device)  # *2 for bidirectional
+        c0 = torch.zeros(config.get('rnn_num_layers', 2) * 2, batch_size, config.get('rnn_hidden_size', 1024)).to(self.device)
         
-        # Define a wrapper function for checkpointing
         def rnn_forward(input_tensor, hidden):
             return self.rnn(input_tensor, hidden)
         
-        # Apply checkpointing to the RNN forward pass
         if config.get('use_mixed_precision', False):
             out, (h, c) = checkpoint(rnn_forward, rnn_input, (h0, c0))
         else:
